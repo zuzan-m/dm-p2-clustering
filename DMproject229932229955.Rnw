@@ -1,0 +1,1053 @@
+\documentclass{article}
+
+\usepackage{float}
+\usepackage{array}
+\usepackage{braket}
+\usepackage{amsmath}
+\usepackage{caption}
+\usepackage{graphicx}
+\usepackage{amsfonts}
+\usepackage{hyperref}
+\usepackage{mathtools}
+\usepackage[T1]{fontenc}
+\usepackage[cp1250]{inputenc}
+\usepackage[left=2.5cm,right=2.5cm,bottom=2cm,top=2cm]{geometry}
+\setlength\parindent{0pt}
+
+<<ustawienia_globalne, echo=FALSE, warning=FALSE, eval=T, message=FALSE>>=
+library(lle)
+library(fpc)
+library(plyr)
+library(klaR)
+library(MASS)
+library(ROCR)
+library(DMwR)
+library(class)
+library(ipred)
+library(party)
+library(knitr)
+library(rpart)
+library(stats)
+library(caret)
+library(e1071)
+library(dbscan)
+library(plot3D)
+library(xtable)
+library(Boruta)
+library(Gmedian)
+library(clValid)
+library(threejs)
+library(mlbench)
+library(ggplot2)
+library(cluster)
+library(ClusterR)
+library(corrplot)
+library(latex2exp)
+library(gridExtra)
+library(rpart.plot)
+library(factoextra)
+library(RColorBrewer)
+library(DataExplorer)
+library(randomForest)
+library(scatterplot3d)
+opts_chunk$set(fig.path='figure/', fig.align='center', fig.pos='H')
+#library(tidyverse)
+#library(leaps)
+@
+
+\begin{document}
+
+{\centering
+{\scshape\Large Data Mining \par}
+\vspace{0.3cm}
+{\Large Course project \par}
+\vspace{0.5cm}
+{\Large Marta Kawalko (229955), Zuzanna Materny (229932)\par}
+\vspace{1.5cm}
+{\LARGE\bfseries Application of data mining techniques \\on {\itshape Breast Cancer Wisconsin} data set \par}
+{\Large part II \par}
+\vspace{3cm}}
+
+\newpage
+\tableofcontents
+\newpage
+
+\section{Introduction}
+
+The project goal is to use remaining data mining methods to perform complete analysis of selected data. A great number of techniques have been applied to our analysis in the previous part \ref{proj1}. In this project we will mostly focus on cluster analysis with quality assessment as well as the chosen dimension reduction methods in connection with clustering and classification. At the same time we will deepen our knowledge of the real breast cancer problem. \\
+\\
+As mentioned before in \ref{proj1} breast cancer is one of the most common cancers women are facing. It is a serious problem that cannot be neglected. The analysis is carried out on the breast cancer data obtained from the University of Wisconsin Hospitals ([\ref{dataset}]). The data was collected in the years 1989-1991 and contains the following information:
+
+\begin{center}
+\begin{tabular}{r l l}
+
+     & Attribute                    & Domain\\\hline
+   1.& Sample code number           & id number\\
+   2.& Clump Thickness              & 1 - 10\\
+   3.& Uniformity of Cell Size      & 1 - 10\\
+   4.& Uniformity of Cell Shape     & 1 - 10\\
+   5.& Marginal Adhesion            & 1 - 10\\
+   6.& Single Epithelial Cell Size  & 1 - 10\\
+   7.& Bare Nuclei                  & 1 - 10\\
+   8.& Bland Chromatin              & 1 - 10\\
+   9.& Normal Nucleoli              & 1 - 10\\
+  10.& Mitoses                      & 1 - 10\\
+  11.& Class:                       & (2 for benign, 4 for malignant)
+
+\end{tabular}
+\end{center}
+
+<<echo=F, eval=T>>=
+set.seed(333)
+url <- "https://archive.ics.uci.edu/ml/machine-learning-databases/breast-cancer-wisconsin/breast-cancer-wisconsin.data"
+download.file(url=url, destfile="wdbc.data", method="curl")
+df <- read.csv("wdbc.data", header=FALSE, stringsAsFactors=FALSE)
+colnames(df) <- c('id', 'Clump.Thickness', 'Uniformity.of.Cell.Size', 'Uniformity.of.Cell.Shape', 'Marginal.Adhesion', 'Single.Epithelial.Cell.Size', 'Bare.Nuclei', 'Bland.Chromatin', 'Normal.Nucleoli', 'Mitoses', 'Class')
+df[df$Bare.Nuclei=='?', "Bare.Nuclei"] = NA
+df <- subset(df, select = -c(id))  # remove id column
+df <- colwise(as.integer)(df)
+df <- colwise(as.factor)(df)  
+df$Class = as.factor(ifelse(df$Class == 2, 'Benign', 'Malignant'))
+df <- df[complete.cases(df),]
+df_num <- data.frame(df)
+df_num$Class = ifelse(df_num$Class == 'Benign', 0, 1) 
+df_num <- colwise(as.integer)(df_num)   # numerical df
+@
+
+\section{Reminder of the conclusion drawn in part I}
+\subsection{Reasearch already conducted}
+After familiarizing with the data set, we focused on both missing values and identification and interpretation of outliers. Then multiple feature selection methods were applied. We have examined Boruta algorithm, random forest methods with conditional inference trees as well as Breiman's algorithm. Stepwise feature selection was also used to analyse the best subset of the data set. From that we have learnt that there exist less relevant features which can be omitted without the negative impact on the analysis results. In the further chapters of the project the class imbalance problem was considered. For better classification results many various methods were inspected. Linear regression model was the starting point. Then the $k$ nearest neighbours algorithm was applied along with Linear Discriminant Analysis, which was followed by Quadratic Discriminant Analysis. Logistic regression came along right after. At the very end we have considered single classification tree and whole random forests.\\
+\\
+Most of the methods we discussed were applied to numerical data. We kept in mind that the values in our data frame were actually categorical, but that worked very well. Only classification tree and random forest worked directly on data of type factor.\\
+\\
+Carrying out cross validation assured us about their good performance. We decided not to repeat feature selection in each iteration in favour of generalizing the importance for all measures and making model independent of training/testing subset division. It turned out that three variables are sufficient to predict the class of tumor with good accuracy. 
+
+\subsection{Final conclusions}
+To draw proper conclusions, we should consider the purposes of the whole analysis and classification. If it is supposed to be used for only statistical purposes, having information about Bare Nuclei, Clump Thickness and Uniformity of Cell Size will give us satisfactory results. When it comes to patient's diagnosis, we should be as accurate as possible, so rather use full models or models excluding Mitoses and Marginal Adhesion, since our analysis proved their negligible importance. Giving less attention to type I and type II errors might result with strongly confusing diagnoses, which might have fatal consequences. 
+
+%*************************************************************
+\section{Cluster analysis}
+
+On of the examples of unsupervised learning is cluster analysis. We wish to detect the internal data structure and create the proper number of clusters -- separated and homogeneous groups. We have to make sure that the distance between the similar objects in one cluster along with the dissimilarity measure between objects is determined accurately. We try to figure out how many clusters should be created and which objects belong to which group. Such work can allows us to formulate new hypothesis after reveling characteristics that were hidden before. Dimension reduction can also be the next step after clustering. We may also expect obtaining different results and solutions after using various clustering algorithms. Keeping in mind that such approach is unstable, we will handle clustering carefully and deliberately. The interpretation of the results may be a hard nut to crack.\\
+\\
+There is a popular split between clustering: soft and hard clustering.
+Soft clustering allows an object to belong to more than one cluster with some likelihood value or probability. On the contrary, hard clustering requires that the object belongs to one and only cluster. In our analysis we will mostly focus on hard clustering.\\
+\\
+There are plenty of different algorithms regarding clustering. As it is the subjective task, there can be few correct clustering algorithms. We will experimentally decide which algorithms along with specified parameters are the best for our data set.\\
+\\
+Clustering is also a tool that helps us understand and explore the data, but we have to be careful because single clustering might be misleading and unreliable.
+
+\subsection{Partitioning methods}
+Partitioning methods help us find the split into $K$ groups so that the differences between the objects in one group are optimally small. We just have to specify the number of groups $K$ and the criterion -- dissimilarity or distance measure.
+
+\subsubsection{$k$-means method}
+One of the most commonly used algorithm involving the division into specified number of clusters is called $k$-means.
+In this algorithm objects belong to the cluster with the nearest mean. The method uses squared Euclidean distance to optimize the variances within each cluster. The sum of such distances is the total within-cluster variation:
+$$V(C_k) = \sum_{x_i \in C_k}(x_i - \mu_k)^2,$$
+where $x_i$ is an object that belongs to cluster $C_k$ and $\mu_k$ is the mean value for cluster $C_k$.
+
+For our data set the intuitive number of clusters is 2 as we have 2 types of cancer: benign and malignant. If we do not know the proper number of clusters, we usually check the results and decide. We can also consult a doctor as we use the medical data set.\\
+\\
+Let us start from checking the results for different number of clusters. We will consider $12$ clusters as our maximum. We have to keep in mind how the number of partitions grows along with the number of clusters. The first step is to remove class labels as it is unsupervised learning. We will also create a table working like a confusion matrix and telling us how many observations are in "benign" cluster and actually representing benign cancer and how many observations belong to the other cluster and the same thing for malignant cancer. Based on the table the ratio of correctly matched pairs is calculated.
+\newpage
+<<echo=F, eval=T, warning=F>>=
+df_features <- df[,1:9] # We remove class labels (--> unsupervised learning)
+df_real_labels <- df[,10]
+
+withinss_k <- numeric(12)
+betweenss_k <- numeric(12)
+for(i in 1:12){
+  k <- i
+  kmeans <- kmeans(df_features, centers=k, iter.max=10, nstart=10)
+  withinss_k[i] <- kmeans$tot.withinss
+  betweenss_k[i] <- kmeans$betweenss
+  df_kmeans_labels <- kmeans$cluster
+  tab1 <- table(df_kmeans_labels, df_real_labels)
+  cat("k =",k,"clusters; ")
+  (matchClasses(tab1))
+}
+@
+
+The first number indicated the number of clusters and the second shows the ratio of correctly matched pairs. We can see that merely two clusters give us very high ratio. For 3 clusters the number is slightly bigger and exactly the same as for 6 and even 9 clusters. The best result can be observed for 8 clusters but it is significantly more than 3 which follows the huge growth of number of partitions.\\
+\\
+Now we will check the total within-cluster sum of squares, which is the sum of the vector of within-cluster sum of squares:
+$$\sum_{k=1}^k V(C_k) = \sum_{k=1}^k \sum_{x_i \in C_k} (x_i - \mu_k)^2.$$
+Our intuition tells us that the more clusters we have, the smaller is this number. We will also show the between-cluster sum of squares on the same plot.
+
+<<echo=F, eval=T, warning=F, fig.height=4, fig.cap='Sum of squares within clusters and between clusters with respect to number of clusters.'>>=
+plot(1:12, withinss_k, lwd=2, type="b", col = "#229959", main="Total withinness and betweenness",
+     xlab="number of clusters", ylab="values")
+lines(1:12, betweenss_k, lwd=2, type="b", col = "991122")
+legend("top", legend = c("total within-cluster sum of squares", "between-cluster sum of squares"),
+       col = c("#229959", "991122"), pch=c(1,1), lwd=c(2,2))
+@
+As we suspected, the bigger number of clusters is associated with the smaller value of total within-cluster variation. Starting from the very beginning the differences between the next values are getting smaller and smaller. So in our analysis we will consider two cases -- the division into 2 and 3 clusters.\\
+\\
+Creating a 2D plot showing the results of clustering for our data set might be complicated, due to the fact that two features might take the same values for multiple observations and there are only 10 values for each feature. We have come up with an idea to show the results on 3D scatter plot. We can get $10 \cdot 10 \cdot 10$ different combinations within the values of $3$ variables. Of course the part of them do not exist in our data set and some points might be duplicated, but the visualization is more clear than for 2D scatter plot. The chosen variables are these $3$ that best classified our model in the Classification part of the previous project [\ref{proj1}]. Please note that 3D scatter plot is here only for better performance of clustering and understanding the results.\\
+\\
+The alternative to show obtained clusters is to use the observation index. Of course such approach might perturb the shapes of clusters, but as we are aware that higher values indicate malignant cancer, it is easier to spot the differences between clusters that way and no observations will overlap on the plot.
+
+<<echo=F, eval=T, warning=F, fig.height=4.5, fig.cap='Cluster membership visualization.'>>=
+k <- 2
+#kmeans_2 <- kmeans(df_features, centers=k, iter.max=10, nstart=10)
+kmeans_2 <- kmeans(df_num[,-10], centers=k, iter.max=10, nstart=10)
+
+df_kmeans_labels <- kmeans_2$cluster
+
+tab2 <- table(df_kmeans_labels, df_real_labels)
+
+color <- c("#08b2e3", "#98ce00")
+colors <- color[as.numeric(df_kmeans_labels)]
+scatterplot3d(df_features[c(6,1,2)],
+              pch=as.numeric(df_real_labels), color=colors)
+legend("topleft", 
+      #legend = c(matchClasses(tab2), "Real Benign", "Real Malignant"),
+      legend = c("Cluster 1", "Cluster 2", "Real Benign", "Real Malignant"),
+      col =  c(color, "#111111", "#111111"), 
+      pch = c(15, 15, 1, 2), cex=0.8, bg='white')
+title("Clustering using k-means, two clusters")
+
+scatterplot3d(index(df_features), t(df_features[1]), t(df_features[6]),
+              pch=as.numeric(df_real_labels), color=colors, 
+              xlab="index", ylab="Clump.Thickness", zlab="Uniformity.of.Cell.Size")
+legend("topleft", 
+      #legend = c(matchClasses(tab2), "Real Benign", "Real Malignant"),
+      legend = c("Cluster 1", "Cluster 2", "Real Benign", "Real Malignant"),
+      col =  c(color, "#111111", "#111111"), 
+      pch = c(15, 15, 1, 2), cex=0.8, bg='white')
+title("Clustering using k-means, two clusters, the alternative way")
+@
+<<echo=F, eval=T, fig.height=4.5, fig.cap='Visualization of cluster membership in principal components space.', warning=F>>=
+fviz_cluster(kmeans_2, df_num[,-10], frame = FALSE, geom = "point", ggtheme = theme_minimal())
+@
+<<echo=F, eval=T, results='asis'>>=
+xtable(tab2)
+@
+The legend explains the denotation. In the figure 2 and 3 the coloured squares indicate the colours of the clusters, square shape was chosen on purpose not to be misleading with the symbols used in a plot. The empty shapes in the legend denote the real characteristics of cancer. Although the visualization in figure 3 shows all the observations (they do not overlay as in figure 2), it perturbs the cluster shape totally, so we decide not to continue showing obtained clusters in that way. Figure 4 was generated using \texttt{fviz\_cluster()} function from \texttt{factoextra} package. The axes represent the dimensions obtained automatically using principal components. \\
+\\
+As we can see in the pictures and in the table (columns indicate true classes and rows correspond to clusters), most of the true benign cancers belong to one cluster and most of the malignant belong to the other one. Now let us have a look at the partition into 3 clusters.\\
+
+
+
+<<echo=F, eval=T, fig.height=4.5, fig.cap='Cluster membership visualization.'>>=
+k <- 3
+#kmeans_3 <- kmeans(df_features, centers=k, iter.max=10, nstart=10)
+kmeans_3 <- kmeans(df_num[,-10], centers=k, iter.max=10, nstart=10)
+df_kmeans_labels <- kmeans_3$cluster
+
+tab3 <- table(df_kmeans_labels, df_real_labels)
+#matchClasses(tab3)
+
+color <- c("#ff9933", "#33cc33", "#cc3399")
+colors <- color[as.numeric(df_kmeans_labels)]
+scatterplot3d(df_features[c(6,1,2)],
+              pch=as.numeric(df_real_labels), color=colors)
+legend("topleft", 
+      #legend = c(matchClasses(tab3), "Real Benign", "Real Malignant"),
+      legend = c("Cluster 1","Cluster 2","Cluster 3", "Real Benign", "Real Malignant"),
+      col =  c(color, "#111111", "#111111"), 
+      pch = c(15, 15, 15, 1, 2), cex=0.8, bg='white')
+title("Clustering using k-means, three clusters")
+@
+<<echo=F, eval=T, fig.height=4.5, fig.cap='Visualization of cluster membership in principal components space.', warning=F>>=
+fviz_cluster(kmeans_3, df_num[,-10], frame = FALSE, geom = "point", ggtheme = theme_minimal())
+@
+<<echo=F, eval=T, results='asis',warning=F,message=F>>=
+xtable(tab3)
+#tbl <-ftable(tab3)
+#xftbl <- xtableFtable(tbl, method = "compact")
+#print.xtableFtable(xftbl, booktabs = F)
+@
+
+
+%Here we get one "benign" cluster and two "malignant" clusters. The observations for benign are placed further from those belonging to both "malignant" clusters.
+As we can see, there is one cluster which contains observations of only one true type -- malignant. In the remaining two clusters there are still a few observations assigned incorrectly.
+
+
+\subsubsection{Mini-batch-$k$-means method}
+Mini-batch-$k$-means method is a modification of $k$-means method. To optimize the objective function, it uses small batches from random data samples unlike in $k$-means method where the whole data set is used. The method returns the output in average more than twice as fast as the classical $k$-means.
+First we have to convert our data frame to matrix. Let's compare the results for both cases --  2 and 3 clusters. The algorithm will be run 5 times with different centroid seeds. The batch size was checked by us and the number $7$ was chosen based on the results.
+
+<<echo=F, eval=T, fig.height=4.5, fig.cap='Cluster membership visualization.'>>=
+df_features2 <- data.matrix(df_features, rownames.force = NA)
+mini2 <- MiniBatchKmeans(df_features2, clusters = 2, batch_size = 7, 
+                         num_init = 5, early_stop_iter = 10)
+
+mini2_labels <- predict_MBatchKMeans(df_features2, mini2$centroids)
+tab_mini2 <- table(mini2_labels, df_real_labels)
+#matchClasses(tab_mini2)
+
+color <- c("#08b2e3", "#98ce00")
+colors <- color[as.numeric(mini2_labels)]
+scatterplot3d(df_features[c(6,1,2)],
+              pch=as.numeric(df_real_labels), color=colors)
+legend("topleft", 
+      #legend = c(matchClasses(tab_mini2), "Real Benign", "Real Malignant"),
+      legend = c("Cluster 1", "Cluster 2", "Real Benign", "Real Malignant"),
+      col =  c(color, "#111111", "#111111"), 
+      pch = c(15, 15, 1, 2), cex=0.8, bg='white')
+title("Clustering using mini-batch-k-means method, two clusters")
+@
+<<echo=F, eval=T, results='asis'>>=
+xtable(tab_mini2)
+@
+We can see that the ratio of cases in matched pairs is a little bit lower than for classical $k$-means method. Let us check what happens for $3$ clusters. Here the best ratio of matched pairs can be observed for batch size equal $17$.
+
+<<echo=F, eval=T, fig.height=4.5, fig.cap='Cluster membership visualization.'>>=
+mini3 <- MiniBatchKmeans(df_features2, clusters = 3, batch_size = 17, 
+                         num_init = 5, early_stop_iter = 10)
+
+mini3_labels <- predict_MBatchKMeans(df_features2, mini3$centroids)
+tab_mini3 <- table(mini3_labels, df_real_labels)
+#matchClasses(tab_mini3)
+
+
+color <- c("#08b2e3", "#98ce00", "#bf4aa0")
+colors <- color[as.numeric(mini3_labels)]
+scatterplot3d(df_features[c(6,1,2)],
+              pch=as.numeric(df_real_labels), color=colors)
+legend("topleft", 
+      #legend = c(matchClasses(tab_mini3), "Real Benign", "Real Malignant"),
+      legend = c("Cluster 1", "Cluster 2","Cluster 3", "Real Benign", "Real Malignant"),
+      col =  c(color, "#111111", "#111111"), 
+      pch = c(15, 15, 15, 1, 2), cex=0.8, bg='white')
+title("Clustering using mini-batch-k-means method, three clusters")
+@
+<<echo=F, eval=T, results='asis'>>=
+xtable(tab_mini3)
+@
+
+As the method is very fast and efficient, we will also consider the division into $4$ clusters. Here the batch size is set to $16$ based on the results.
+
+<<echo=F, eval=T, fig.height=4.5, fig.cap='Cluster membership visualization.'>>=
+mini4 <- MiniBatchKmeans(df_features2, clusters = 4, batch_size = 16, 
+                         num_init = 5, early_stop_iter = 10)
+
+mini4_labels <- predict_MBatchKMeans(df_features2, mini4$centroids)
+tab_mini4 <- table(mini4_labels, df_real_labels)
+#matchClasses(tab_mini4)
+
+color <- c("#08b2e3", "#98ce00", "#bf4aa0", "#f7996e")
+colors <- color[as.numeric(mini4_labels)]
+scatterplot3d(df_features[c(6,1,2)],
+              pch=as.numeric(df_real_labels), color=colors)
+legend("topleft", 
+      #legend = c(matchClasses(tab_mini4), "Real Benign", "Real Malignant"),
+      legend = c("Cluster 1", "Cluster 2","Cluster 3","Cluster 4", "Real Benign", "Real Malignant"),
+      col =  c(color, "#111111", "#111111"), 
+      pch = c(15, 15, 15, 15, 1, 2), cex=0.8, bg='white')
+title("Clustering using mini-batch-k-means method, four clusters")
+@
+<<echo=F, eval=T, results='asis'>>=
+xtable(tab_mini4)
+@
+
+A good observer might see that the second cluster is very small and contains only 25 values whereof 5 indicate benign cancer and the rest 20 stand for malignant cancer. It might suggest that for those observations the values of all the variables differ in such way that is it not clear what type of cancer we examine. \\
+\\
+After experimenting with different numbers of clusters we may notice that one cluster (corresponding to benign type of cancer) is quite coherent and not affected much by introducing more clusters. No distinct groups are visible in our data and larger number of clusters does not reveal any special patterns. Thus, we will stick to the division into two clusters, because it is the most reasonable.
+
+\subsubsection{$k$-medians method}
+We are going to use a fast $k$-medians algorithm based on recursive averaged stochastic gradient algorithms (function \texttt{kGmedian()} from package \texttt{Gmedian} in R). Here the sum of norms is calculated, not the sum of squared norms like we have in $k$-means method. We do not have many outliers, but sometimes the values of our variables differ a lot so this method ensures a more robust behaviour against them. Our data frame has to be converted to matrix like previously. 
+
+<<echo=F, eval=T, fig.height=4.5, fig.cap='Cluster membership visualization.'>>=
+k <- 2
+kmedians_2 <- kGmedian(df_features2, ncenters=k, gamma=1, alpha=0.75, nstart=10, nstartkmeans=10)
+df_kmedians_labels <- kmedians_2$cluster
+
+tab_median2 <- table(df_kmedians_labels, df_real_labels)
+
+color <- c("#08b2e3", "#98ce00")
+colors <- color[as.numeric(df_kmedians_labels)]
+scatterplot3d(df_features[c(6,1,2)],
+              pch=as.numeric(df_real_labels), color=colors)
+legend("topleft", 
+      #legend = c(matchClasses(tab_median2), "Real Benign", "Real Malignant"),
+      legend = c('Cluster 1','Cluster 2', "Real Benign", "Real Malignant"),
+      col =  c(color, "#111111", "#111111"), 
+      pch = c(15, 15, 1, 2), cex=0.8, bg='white')
+title("Clustering using k-medians, two clusters")
+@
+<<echo=F, eval=T, results='asis'>>=
+xtable(tab_median2)
+@
+
+This result seems better comparing to $k$-means. In the 'benign' cluster here we have 14 wrongly assigned observations, while standard $k$-means method mistook 18 entries.
+
+\subsubsection{$k$-medoids method}
+$k$-medoids or partitioning around medoids (PAM) also reminds a bit $k$-means method, but PAM algorithm can be used for features of any type (also qualitative). In order to define the distance between factor observations we need to compute the dissimilarity matrix.  There is a function \texttt{daisy()} in \texttt{cluster} which does it for us. We can compare here the effectiveness for both data treated as numerical and as factor.
+
+
+<<echo=F, eval=T>>=
+dissimilarity <- daisy(df_features)
+dissim.matrix <- as.matrix(dissimilarity)
+
+pam <- pam(x=dissim.matrix, diss=TRUE, k=2)
+tab.pam <- table(pam$clustering, df_real_labels)
+
+pam.num <- pam(x=df_num[,-10], diss=FALSE, k=2)
+tab.pam.num <- table(pam.num$clustering, df_real_labels)
+@
+<<echo=F, eval=T, warning=F, fig.height=4.5, fig.cap='Cluster membership visualization.'>>=
+color <- c("#08b2e3", "#98ce00")
+colors <- color[as.numeric(pam$clustering)]
+colorsnum <- color[as.numeric(pam.num$clustering)]
+par(mfrow=c(1,2))
+scatterplot3d(df_features[c(6,1,2)],
+              pch=as.numeric(df_real_labels), color=colors, cex.lab=0.8, cex.axis=0.8)
+legend("topleft", 
+      #legend = c(matchClasses(tab_median2), "Real Benign", "Real Malignant"),
+      legend = c('Cluster 1','Cluster 2', "Real Benign", "Real Malignant"),
+      col =  c(color, "#111111", "#111111"), 
+      pch = c(15, 15, 1, 2), cex=0.5, bg='white')
+title("PAM clustering, factor data")
+scatterplot3d(df_features[c(6,1,2)],
+              pch=as.numeric(df_real_labels), color=colorsnum, cex.lab=0.8, cex.axis=0.8)
+legend("topleft", 
+      #legend = c(matchClasses(tab_median2), "Real Benign", "Real Malignant"),
+      legend = c('Cluster 1','Cluster 2', "Real Benign", "Real Malignant"),
+      col =  c(color, "#111111", "#111111"), 
+      pch = c(15, 15, 1, 2), cex=0.5, bg='white')
+title("PAM clustering, numerical data")
+@
+
+\captionsetup[table]{labelformat=empty}
+<<echo=F, eval=T, results='asis'>>=
+print(xtable(tab.pam, caption = 'Matched cases for PAM for factor data.'))
+print(xtable(tab.pam.num, caption = 'Matched cases for PAM for numerical data.'))
+@
+
+<<echo=F, eval=T, results='asis'>>=
+cat('Silhouette average width (factor data):', pam$silinfo$avg.width)
+cat(', Silhouette average width (numerical data):', pam.num$silinfo$avg.width)
+@
+\bigskip
+\\
+Basing on the plots and matching tables above, we can conclude that for this case treating data as numerical gives much better results. At the left scatter plot we can see that the computed clusters' members are not aggregated in visibly distinct groups. In addition, the silhouette index proves lower internal quality of clusters obtained for factor data.\\
+\\
+Although we expected that PAM algorithm might work better than $k$-means, our first basic $k$-means algorithm turns out to be more effective in external indices validation (i.e. in terms of matching with true class labels). However, among all analysed partitioning methods, $k$-medians turns out to be the best. Below we present the percentage of true cases matched in pairs with computed clusters. We used function \texttt{matchClasses()}.
+
+<<echo=F, eval=F>>=
+matchClasses(tab2)
+matchClasses(tab_median2)
+matchClasses(tab.pam.num)
+matchClasses(tab_mini2)
+@
+
+\begin{table}[H]
+\centering
+\begin{tabular}{ll}
+  \hline
+algorithm  & cases in matched pairs \\ 
+  \hline
+$k$-medians &   96.63 \% \\ 
+$k$-means & 96.19 \% \\ 
+PAM & 95.90 \%\\
+mini-batch & 95.75 \%\\
+   \hline
+\end{tabular}
+\end{table}
+
+We can quickly compare the internal quality of clusters obtained with different methods. The function \texttt{cluster.stats()} from \texttt{fpc} package returns a list containing many statistics useful for analyzing the intrinsic characteristics of a clustering. We considered only the cases of two clusters and $k$-means, mini-batch-$k$-means, $k$-medians and PAM methods performed on numerical data.
+
+<<echo=F, eval=T>>=
+kmeans_stats <- cluster.stats(dist(df_num[,-10]),  kmeans_2$cluster)
+minibatch_stats <- cluster.stats(dist(df_num[,-10]),  mini2_labels)
+kmedians_stats <- cluster.stats(dist(df_num[,-10]),  df_kmedians_labels)
+pam_stats <- cluster.stats(dist(df_num[,-10]),  pam.num$clustering)
+
+part_stats <- data.frame(matrix(ncol = 4, nrow = 4), row.names = 
+                           c('average distance within clusters','average distance between clusters','Dunn index','Dunn index 2'))
+colnames(part_stats) <- c('k-means','mini-batch','k-medians','PAM')
+part_stats['average distance within clusters',] = c(kmeans_stats$average.within,
+minibatch_stats$average.within,
+kmedians_stats$average.within,
+pam_stats$average.within)
+part_stats['average distance between clusters',] = c(kmeans_stats$average.between,
+minibatch_stats$average.between,
+kmedians_stats$average.between,
+pam_stats$average.between)
+part_stats['Dunn index',] = c(kmeans_stats$dunn,
+minibatch_stats$dunn,
+kmedians_stats$dunn,
+pam_stats$dunn)
+part_stats['Dunn index 2',] = c(kmeans_stats$dunn2,
+minibatch_stats$dunn2,
+kmedians_stats$dunn2,
+pam_stats$dunn2)
+@
+<<echo=F, eval=T, results='asis'>>=
+print(xtable(part_stats, digits=c(0,4,4,4,4)), table.placement="H")
+@
+
+We seek the minimum distance within clusters and the maximum distance between them. So in the first category the winner is $k$-medians method and in the second mini-batch-$k$-means. The first Dunn index is defined as a ratio of minimum separation to maximum cluster diameter, so the bigger the better. Here only $k$-medians method was a bit worse. The second Dunn index is a ratio of minimum average dissimilarity between two clusters to maximum average within cluster dissimilarity, so again the bigger the better and the top is mini-batch-$k$-means. However, all the methods reveal similar internal quality. 
+
+<<echo=F, eval=F>>=
+rownames(df_num) <- 1:683
+internal.validation <- clValid(df_num[,-10], nClust=2, clMethods = c("kmeans","pam"), 
+                               validation = "internal", maxitems = 700)
+summary(internal.validation)
+@
+<<echo=F, eval=F, results='asis'>>=
+print(summary(internal.validation))
+@
+
+\subsection{Hierarchical clustering}
+
+\subsubsection{Agglomerative method}
+
+Agglomerative hierarchical clustering starts by treating each observation as a separate cluster. Then, it identifies the two clusters that are closest together, and merge the two most similar clusters. These steps continue until all the clusters are merged together.\\
+\\
+The first important step in this analysis is to define the distance between two observations. We will again compare two approaches -- treating data as numerical and calculate a simple euclidean distance using \texttt{dist()} function and creating a dissimilarity matrix for factor data. \\
+\\
+Next step is to select the linkage method, which means from where the distance is computed. Most popular are:
+\begin{itemize}
+\item Single linkage -- between the two most similar elements of the clusters,
+\item Complete linkage -- between the two least similar elements of the clusters,
+\item Average linkage -- between the centers of the clusters.
+\end{itemize}
+
+In the first approach we will compute the simple euclidean distance for numerical values and use \texttt{hclust()} function with specified linkage method. At the beginning, we will verify if 2 is again the optimal number of clusters. In order to do it we can compare internal quality for different numbers of clusters. \\
+\\
+We can perform an internal quality assessment using silhouette information. For each observation $i$, the silhouette width $s(i)$ is defined as follows:
+$$s(i) = \frac{b(i) - a(i)}{\max\{ a(i), b(i) \}}$$
+
+where\\
+$a(i)$ = average dissimilarity between $i$ and all other points of the cluster to which $i$ belongs (if $i$ is the only observation in its cluster, $s(i) = 0$ without further calculations),\\
+$b(i)$ = dissimilarity between $i$ and its “neighbour” cluster, i.e., the nearest one to which it does not belong.\\
+\\
+The table below presents the average silhouette width for different number of clusters and different linkage methods.
+
+<<echo=F, eval=T>>=
+d <- dist(df_num[,-10])
+real.labels <- df$Class
+
+hclust.single <- hclust(d, method = 'single')
+hclust.complete <- hclust(d, method = 'complete')
+hclust.average <- hclust(d, method = 'average')
+sil.avg.widths <- data.frame(matrix(ncol = 3, nrow = 9), row.names = 2:10)
+colnames(sil.avg.widths) <- c('single','complete','average')
+
+for (k in 2:10){
+  clusters.euclid.dist.single <- cutree(hclust.single, k=k)
+  sil.avg.widths$single[k-1] <- mean(silhouette(x=clusters.euclid.dist.single, dist=d)[,'sil_width'])
+  clusters.euclid.dist.complete <- cutree(hclust.complete, k=k)
+  sil.avg.widths$complete[k-1] <- mean(silhouette(x=clusters.euclid.dist.complete, dist=d)[,'sil_width'])
+  clusters.euclid.dist.average <- cutree(hclust.average, k=k)
+  sil.avg.widths$average[k-1] <- mean(silhouette(x=clusters.euclid.dist.average, dist=d)[,'sil_width'])
+}
+@
+<<echo=F, eval=F, results='asis'>>=
+print(xtable(sil.avg.widths, digits=c(0,4,4,4)), table.placement="H")
+@
+
+\begin{table}[H]
+\centering
+\begin{tabular}{cccc}
+  \hline
+    & \multicolumn{3}{c}{Linkage method} \\
+  no of clusters & single & complete & average \\ 
+  \hline
+  2 & 0.3776 & 0.5792 & 0.5891 \\ 
+  3 & 0.3632 & 0.4989 & 0.5503 \\ 
+  4 & 0.3465 & 0.4941 & 0.4904 \\ 
+  5 & 0.2362 & 0.4981 & 0.4858 \\ 
+  6 & 0.2252 & 0.4620 & 0.4839 \\ 
+  7 & 0.2193 & 0.4654 & 0.4836 \\ 
+  8 & 0.2099 & 0.4680 & 0.4872 \\ 
+  9 & 0.2007 & 0.4681 & 0.4840 \\ 
+  10 & 0.1961 & 0.4680 & 0.4939 \\ 
+   \hline
+\end{tabular}
+\end{table}
+
+The index for the number of 2 clusters is the largest, so it is the optimum. In addition, it turned out that hierarchical clustering with single linkage method has the lowest internal quality score. Now we will perform external validation by comparing cluster memberships with true class labels. Below the matched classes tables are presented.
+
+<<echo=F, eval=T>>=
+d <- dist(df_num[,-10])
+real.labels <- df$Class
+
+hclust.single <- hclust(d, method = 'single')
+#plot(hclust.single)
+#rect.hclust(hclust.single, k=2, border="red")
+clusters.euclid.dist.single <- cutree(hclust.single, k=2)
+tab.single <- table(clusters.euclid.dist.single, real.labels)
+
+hclust.complete <- hclust(d, method = 'complete')
+#plot(hclust.complete)
+#rect.hclust(hclust.complete, k=2, border="red")
+clusters.euclid.dist.complete <- cutree(hclust.complete, k=2)
+tab.complete <- table(clusters.euclid.dist.complete, real.labels)
+
+hclust.average <- hclust(d, method = 'average')
+#plot(hclust.average)
+#rect.hclust(hclust.average, k=2, border="red")
+clusters.euclid.dist.average <- cutree(hclust.average, k=2)
+tab.average <- table(clusters.euclid.dist.average, real.labels)   # using just and euclidean distance measure for numerical data, and then average linkage method gives good results
+@
+\captionsetup[table]{labelformat=empty}
+<<echo=F, eval=T, results='asis'>>=
+print(xtable(tab.single, caption = 'Matched cases for single linkage method.'), table.placement="H")
+print(xtable(tab.complete, caption = 'Matched cases for complete linkage method.'), table.placement="H")
+print(xtable(tab.average, caption = 'Matched cases for average linkage method.'), table.placement="H")
+@
+
+As we can see, hierarchical clustering based on single linkage does not provide a good division into two clusters -- one cluster is of size 1. External quality assessment is pretty consistent with internal one. The best result comes from average linkage, so we can have a closer look at its visualization. (However, it is still worse than for partitioning methods.)
+
+<<echo=F, eval=T, fig.height=4.5, fig.cap='Cluster membership visualization.'>>=
+color <- c("#08b2e3", "#98ce00")
+colors <- color[as.numeric(clusters.euclid.dist.average)]
+scatterplot3d(df_features[c(6,1,2)],
+              pch=as.numeric(real.labels), color=colors)
+legend("topleft", 
+      #legend = c(matchClasses(tab_median2), "Real Benign", "Real Malignant"),
+      legend = c('Cluster 1','Cluster 2', "Real Benign", "Real Malignant"),
+      col =  c(color, "#111111", "#111111"), 
+      pch = c(15, 15, 1, 2), cex=0.8, bg='white')
+title("Hierarchical clustering using average linkage method")
+@
+
+Below there is a silhuette plot presented. High value of silhouette width indicates correct assignment. In our case there is a large number of observations assigned to the first cluster with a high confidence. Bearing in mind characteristics of our data, it can correspond to benign cancer observations, when all of the features take values close to 1. Second cluster is more problematic and not so coherent. In both clusters we can find observations which are considered as incorrectly assigned.
+
+<<echo=F, eval=T, fig.cap='Silhouette plot.'>>=
+sil <- silhouette(x=clusters.euclid.dist.average, dist=d)
+plot(sil, main = 'Silhouette plot of hierarchical clustering using average linkage', cex.main=0.7)
+@
+\bigskip
+
+Let us check whether switching to factor variables and using a dissimilarity matrix will improve the results. We will use \texttt{agnes()} function which computes agglomerative hierarchical clustering. It is very helpful to look at dendrograms. However, since we have over 600 observations, for which the dendrograms would be unreadable, we will present them for chosen 100 entries. All further computations will be done for complete data.
+
+<<echo=F,eval=T, fig.height=3, fig.cap='Dendrogram of AGNES using complete linkage method.'>>=
+dissimilarity1 <- daisy(df_features[1:100,])
+dissim.matrix1 <- as.matrix(dissimilarity1)
+agnes.complete <- agnes(x=dissim.matrix1, diss=TRUE, method="complete")
+plot(agnes.complete, which.plots=2, main="AGNES: complete linkage", cex=0.5)
+rect.hclust(agnes.complete, k=2, border="red")
+@
+<<echo=F,eval=T, fig.height=3, fig.cap='Dendrogram of AGNES using single linkage method.'>>=
+agnes.single <- agnes(x=dissim.matrix1, diss=TRUE, method="single")
+plot(agnes.single, which.plots=2, main="AGNES: single linkage", cex=0.5)
+rect.hclust(agnes.single, k=2, border="red")
+@
+<<echo=F,eval=T, fig.height=3, fig.cap='Dendrogram of AGNES using average linkage method.'>>=
+agnes.avg <- agnes(x=dissim.matrix1, diss=TRUE, method="average")
+plot(agnes.avg, which.plots=2, main="AGNES: average linkage", cex=0.5)
+rect.hclust(agnes.avg, k=2, border="red")
+@
+
+\bigskip
+We marked with red rectangles the regions assigned to one cluster. Only complete linkage option provides a fair cluster split. Let's check their quality according to true classes.
+
+<<echo=F, eval=T>>=
+agnes.complete <- agnes(x=dissim.matrix, diss=TRUE, method="complete")
+agnes.complete.k2 <- cutree(agnes.complete, k=2)
+tab.agnes <- table(agnes.complete.k2, real.labels) #compare cluster sizes
+@
+<<echo=F, eval=T, results='asis'>>=
+print(xtable(tab.agnes), table.placement="H")
+@
+
+Cluster 1 contains only observations corresponding to benign cancer and one malignant cancer. However, in the second cluster we have both types mixed. Let's check whether if we set the number of clusters to 3, we will separate the mixed observations.
+
+<<echo=F, eval=T>>=
+agnes.complete.k2 <- cutree(agnes.complete, k=3)
+tab.agnes <- table(agnes.complete.k2, real.labels) #compare cluster sizes
+@
+<<echo=F, eval=T, results='asis'>>=
+print(xtable(tab.agnes), table.placement="H")
+@
+
+Unfortunately, chosen algorithm didn't work that well. It was very surprising for us that changing a distance measure and using slightly different function (but both computing agglomerative nesting) changed the results dramatically.\\
+\\
+Keeping in mind the purpose of our analysis -- detecting a separation pattern in order to categorize the cancer, we will not assess the internal quality, since the validation referring to external information (actual class membership) already shows its poorness. 
+
+<<echo=F, eval=F>>=
+# 3 variables only
+dissimilarity <- daisy(df_features[1:100,c(1,2,6)])
+dissim.matrix <- as.matrix(dissimilarity)
+agnes.complete <- agnes(x=dissim.matrix, diss=TRUE, method="complete")
+plot(agnes.complete, which.plots=2, main="AGNES: complete linkage", cex=0.5)
+rect.hclust(agnes.complete, k=2, border="red")
+agnes.single <- agnes(x=dissim.matrix, diss=TRUE, method="single")
+plot(agnes.single, which.plots=2, main="AGNES: single linkage", cex=0.5)
+rect.hclust(agnes.single, k=2, border="red")
+agnes.avg <- agnes(x=dissim.matrix, diss=TRUE, method="average")
+plot(agnes.avg, which.plots=2, main="AGNES: average linkage", cex=0.5)
+rect.hclust(agnes.avg, k=2, border="red")
+@
+
+
+\subsubsection{Divisive method}
+
+In contrast to agglomerative nesting, divisive analysis (DIANA) works in a top-down manner. At each step of iteration, the most heterogeneous cluster is divided into two. The process is iterated until all objects are in their own cluster.\\
+\\
+Since in the past analysis we obtained better results treating our data as numerical and calculating simple euclidean distance between observations, now we will also use DIANA algorithm on numerical data.
+
+<<echo=F, eval=T>>=
+diana <- diana(x=df_num[,-10], diss=F)
+diana.k2 <- cutree(diana, k=2)
+tab.diana <- table(diana.k2, real.labels) 
+@
+<<echo=F, eval=T, fig.height=4.5, fig.cap='Cluster membership visualization.'>>=
+color <- c("#08b2e3", "#98ce00")
+colors <- color[as.numeric(diana.k2)]
+scatterplot3d(df_features[c(6,1,2)],
+              pch=as.numeric(real.labels), color=colors)
+legend("topleft", 
+      #legend = c(matchClasses(tab_median2), "Real Benign", "Real Malignant"),
+      legend = c('Cluster 1','Cluster 2', "Real Benign", "Real Malignant"),
+      col =  c(color, "#111111", "#111111"), 
+      pch = c(15, 15, 1, 2), cex=0.8, bg='white')
+title("Divisive hierarchical clustering")
+@
+<<echo=F, eval=T, results='asis'>>=
+print(xtable(tab.diana), table.placement="H")
+@
+
+Again, this method does not pass well the external indices validation. The partition agreement is similar to the one from agglomerative nesting with average linkage (on numerical data) and not very satisfying. Cluster 1 visibly invades not its region.
+
+\subsection{Other methods}
+\subsubsection{Density based clustering: DBSCAN}
+DBSCAN is the abbreviation of Density Based Spatial Clustering of Applications with Noise. The algorithm is based on k-dimensional tree and was proposed in the year we (the authors of the project) were born. The method marks the outliers from low-density regions. It is worth mentioning that in 2014 the algorithm was awarded the test of time award at the leading data mining conference KDD [\ref{kdd}] so it would be highly inappropriate not to try to apply the method to our data set. It estimates the density around each observation based on the chosen neighbourhood. After that the borders of the clusters are specified.
+
+<<echo=F, eval=T, fig.cap='DBSCAN clustering results'>>=
+dbscan1 <- dbscan::dbscan(df_num[,-10], eps=5, minPts=7)
+dbscan2 <- fpc::dbscan(df_num[,-10], eps=5, MinPts = 7)
+
+#checking if we got the same result
+#all(dbscan1$cluster == dbscan2$cluster)
+
+dbscan_labels1 <- dbscan1$cluster
+#print(dbscan1)
+tab_dbscan1 <- table(dbscan_labels1, df_real_labels)
+
+par(mfrow=c(2,2))
+plot(df_num[,1], col=dbscan1$cluster+1, xlab="observation index", ylab="Clump.Thickness",
+     pch=as.numeric(real.labels))
+plot(df_num[,2], col=dbscan1$cluster+1, xlab="observation index", ylab="Uniformity.of.Cell.Size",
+     pch=as.numeric(real.labels))
+plot(df_num[,6], col=dbscan1$cluster+1, xlab="observation index", ylab="Bare.Nuclei",
+     pch=as.numeric(real.labels))
+plot(df_num[,7], col=dbscan1$cluster+1, xlab="observation index", ylab="Bland.Chromatin",
+     pch=as.numeric(real.labels))
+legend("topright", 
+      legend = c("White Noise", "Benign cluster", "Malignant cluster", "Real Benign", "Real Malignant"),
+      col =  c(1, 2, 3, "#111111", "#111111"), 
+      pch = c(15, 15, 15, 1, 2), cex=0.8, bg='white')
+@
+<<echo=F, eval=T, results='asis'>>=
+print(xtable(tab_dbscan1), table.placement="H")
+@
+
+This way of visualization allows us to show the result of DBSCAN method. We chose 4 variables to present the differences between the clusters on the plots. Black points are considered white noise. The remaining observations were grouped into two clusters and we can really see the separation between them in all the pictures. Observations which take high values of a characteristic are grouped together and correspond to true malignant clump, and observations which take low value of a characteristic are in general corresponding to benign clump. The index of the variable is used just to avoid overlapping and also show that the value of one separate variable can more or less exhibit the differences itself. In the table we can see that true benign cancers lie mostly in one cluster. Only six observations were considered as white noise by the algorithm (row 0 corresponds to white noise observations). Malignant ones are again difficult to group. Although the error connected with 'malignant' and 'benign' clusters separation is not large, the number of observations considered as white noise is significant. We can clearly see them in the picture below.
+
+<<echo=F, eval=T, fig.height=4.5, fig.cap='Visualization of cluster membership in principal components space for DBSCAN method.', warning=F>>=
+fviz_cluster(dbscan1, df_num[,-10], frame = FALSE, geom = "point", ggtheme = theme_minimal(), palette = "Set2")
+@
+
+
+
+%**************************************************
+\section{Dimensionality reduction}
+\subsection{PCA}
+
+In this project we will use a popular method of dimensionality reduction -- principal component analysis (PCA). There are three goals when finding lower dimensional representation of features:
+\begin{itemize}
+\item find linear combination of variables to create principal components,
+\item maintain most variance in the data,
+\item principal components are uncorrelated (orthogonal).
+\end{itemize}
+
+The first important application of PCA is a visualization of multidimensional data in 2D space. We already took advantage of it presenting our clustering results in figures 4, 6 and 19. Below we can see that visualizing the data in 2D for chosen pairs of variables is unreadable, not to mention points' overlapping.
+
+<<echo=F, eval=T, fig.height=5, fig.cap='Data visualization for different variable pairs, coloured by class.'>>=
+colors <- color[df_real_labels]
+plot(df_num[,c(1,2,6,8)], col=colors, pch=as.numeric(df_real_labels))
+@
+
+Of course this method works only for numerical data. In order to efficiently perform PCA, we should take care of similar properties of each variable (mean and standard deviation), since is it a variance maximizing exercise. In R function \texttt{prcomp()} there is a parameter \texttt{scale} and \texttt{center} which, if  \texttt{True}, will control it for us.\\
+\\
+Let us perform  principal component analysis and see the variance explained by each component.
+
+<<echo=F, eval=T>>=
+pca_data <- prcomp(df_num[,-10], scale. = T, center = T)
+@
+<<echo=F, eval=T, results='asis'>>=
+print(xtable(summary(pca_data), table.placement="H"))
+@
+<<echo=F, eval=T, fig.height=3.5, fig.cap='Proportion of variance explained for consecutive principal components.'>>=
+pca_var <- pca_data$sdev^2 / sum(pca_data$sdev^2)
+
+plot(pca_var, xlab = "Principal component",
+     ylab = "Proportion of variance explained", cex.lab=0.8,
+     ylim = c(0, 1), type = "b", col='#731dd8', lwd=2)
+grid()
+@
+<<echo=F, eval=T, fig.height=3.5, fig.cap='Cumulative proportion of variance explained for consecutive principal components.'>>=
+plot(cumsum(pca_var), xlab = "Principal component",
+     ylab = "Cumulative proportion of variance explained", cex.lab=0.8,
+     ylim = c(0, 1), type = "b", col='#731dd8', lwd=2)
+grid()
+@
+We can see that 80\% of the variance is explained by three first principal components. First two components explain 74\% of the variability. Let us look at how our true classes are visible at the new space.
+
+<<echo=F, eval=T, fig.height=4, fig.cap='Data visualization in 2D in principal component space.'>>=
+plot(pca_data$x[,c(1,2)], main='Data visualization in principal component space',
+     pch=as.numeric(df_real_labels))
+legend("bottomright", 
+      #legend = c(matchClasses(tab_median2), "Real Benign", "Real Malignant"),
+      legend = c("Real Benign", "Real Malignant"),
+      pch = c(1, 2), cex=0.8, bg='white')
+@
+
+As we can see, it is sufficient to present the data on 2D plot and have a clear distinction between two classes. New features are not intuitive at all and have no direct interpretation in reality, so it is hard to describe such an illustration. However, this quick insight has let us assume that PCA is a great tool to preprocess data before performing classification or clustering.
+
+\subsection{Classification in PC space}
+We can take advantage of PCA to perform classification on our data. For this moment we will use a data set containing true class labels in order to train the model. The remaining 9 features are treated with \texttt{prcomp()} function. The data frame is split into the training and testing set.\\
+\\
+First model we want to analyze is \textbf{$k$-nearest neighbours}. Of course, since we have 9 independent variables, we obtain 9 principle components, but we keep in mind that 3 of them is enough to explain 80\% of the variance. We will use the algorithm for both full data frame and only the main components performing 5-fold cross validation and inspecting accuracy measures.\\
+\\
+We obtained $k=5$ nearest neighbours to be the optimal number. We will use function \texttt{ipredknn()} firstly for all components.\\
+
+<<echo=F, eval=T>>=
+#knn and logistic regression
+pca_df <- data.frame(pca_data$x)
+pca_df$Class <- real.labels
+@
+<<echo=F, eval=T, results = 'asis'>>=
+pca_df <- pca_df[sample(1:nrow(pca_df), nrow(pca_df)),]
+rownames(pca_df) <- NULL   # shuffled df of integer type
+
+# folds for 5-fold cross validation
+k <- 5
+folds <- cut(seq(1,nrow(pca_df)), breaks=k, labels=FALSE)
+
+misclass.error <- c()
+sensitivity <- c()
+specificity <- c()
+precision <- c()
+
+for (i in 1:k){
+  test.indx <- which(folds==i, arr.ind=TRUE)
+  test.set <- pca_df[test.indx,]
+  train.set <- pca_df[-test.indx,]
+  
+  # for all features
+  knn.all <- ipredknn(Class ~ ., data=train.set, k=5)
+  pred.all <- predict(knn.all, test.set, type="class")
+  conf.matrix <- table(test.set$Class, pred.all)
+  misclass.error[i] <- (nrow(test.set) - sum(diag(conf.matrix))) / nrow(test.set)
+  sensitivity[i] <- conf.matrix[2,2] / sum(conf.matrix[2,])
+  specificity[i] <- conf.matrix[1,1] / sum(conf.matrix[1,])
+  precision[i] <- conf.matrix[2,2] / sum(conf.matrix[,2])
+}
+
+names <- c('Misclassification error', 'Sensitivity', 'Specificity', 'Precision')
+Mean <- c(mean(misclass.error), mean(sensitivity), mean(specificity), mean(precision))
+Variance <- c(var(misclass.error), var(sensitivity), var(specificity), var(precision))
+accuracy.measures <- data.frame(Mean, Variance, row.names = names)
+
+print(xtable(accuracy.measures, caption = 'Accuracy measures for full model.', digits=c(0,4,5)), table.placement = 'H')
+
+
+misclass.error <- c()
+sensitivity <- c()
+specificity <- c()
+precision <- c()
+
+for (i in 1:k){
+  test.indx <- which(folds==i, arr.ind=TRUE)
+  test.set <- pca_df[test.indx,]
+  train.set <- pca_df[-test.indx,]
+  
+  # for chosen features
+  knn.all <- ipredknn(Class ~ ., data=train.set[,c(1,2,3,10)], k=5)
+  pred.all <- predict(knn.all, test.set[,c(1,2,3,10)], type="class")
+  conf.matrix <- table(test.set$Class, pred.all)
+  misclass.error[i] <- (nrow(test.set) - sum(diag(conf.matrix))) / nrow(test.set)
+  sensitivity[i] <- conf.matrix[2,2] / sum(conf.matrix[2,])
+  specificity[i] <- conf.matrix[1,1] / sum(conf.matrix[1,])
+  precision[i] <- conf.matrix[2,2] / sum(conf.matrix[,2])
+}
+
+names <- c('Misclassification error', 'Sensitivity', 'Specificity', 'Precision')
+Mean <- c(mean(misclass.error), mean(sensitivity), mean(specificity), mean(precision))
+Variance <- c(var(misclass.error), var(sensitivity), var(specificity), var(precision))
+accuracy.measures <- data.frame(Mean, Variance, row.names = names)
+
+print(xtable(accuracy.measures, caption = 'Accuracy measures for simplified model (3 principal components).', digits=c(0,4,5)), table.placement = 'H')
+@
+
+We can now take a look into the first part of our project to compare accuracy measures (section 5.1). Using only 3 PC results in a little bit worse accuracy, but in both cases prediction based on original variables is more precise.\\
+\\
+We will consider one more model to compare the outcome. We picked \textbf{logistic regression} (section 5.2 in the first part of project). Since the prediction is given by a number between 0 and 1, we will assign "Benign" flag to those below 0.5 and "Malignant" flag to the rest. Here are the accuracy measures:
+
+<<echo=F, eval=T, results = 'asis'>>=
+pca_df <- pca_df[sample(1:nrow(pca_df), nrow(pca_df)),]
+rownames(pca_df) <- NULL   # shuffled df of integer type
+
+# folds for 5-fold cross validation
+k <- 5
+folds <- cut(seq(1,nrow(pca_df)), breaks=k, labels=FALSE)
+
+misclass.error <- c()
+sensitivity <- c()
+specificity <- c()
+precision <- c()
+
+for (i in 1:k){
+  test.indx <- which(folds==i, arr.ind=TRUE)
+  test.set <- pca_df[test.indx,]
+  train.set <- pca_df[-test.indx,]
+  
+  # for all features
+  logit.all <- glm(Class ~ ., data=train.set, family=binomial(link="logit"))
+  pred.all <- as.factor(ifelse(predict(logit.all, test.set, type = "response") < 0.5, 'Benign', 'Malignant'))
+  conf.matrix <- table(test.set$Class, pred.all)
+  misclass.error[i] <- (nrow(test.set) - sum(diag(conf.matrix))) / nrow(test.set)
+  sensitivity[i] <- conf.matrix[2,2] / sum(conf.matrix[2,])
+  specificity[i] <- conf.matrix[1,1] / sum(conf.matrix[1,])
+  precision[i] <- conf.matrix[2,2] / sum(conf.matrix[,2])
+}
+
+names <- c('Misclassification error', 'Sensitivity', 'Specificity', 'Precision')
+Mean <- c(mean(misclass.error), mean(sensitivity), mean(specificity), mean(precision))
+Variance <- c(var(misclass.error), var(sensitivity), var(specificity), var(precision))
+accuracy.measures <- data.frame(Mean, Variance, row.names = names)
+
+print(xtable(accuracy.measures, caption = 'Accuracy measures for full model.', digits=c(0,4,5)), table.placement = 'H')
+
+
+misclass.error <- c()
+sensitivity <- c()
+specificity <- c()
+precision <- c()
+
+for (i in 1:k){
+  test.indx <- which(folds==i, arr.ind=TRUE)
+  test.set <- pca_df[test.indx,]
+  train.set <- pca_df[-test.indx,]
+  
+  # for chosen features
+  logit.all <- glm(Class ~ ., data=train.set[,c(1,2,3,10)], family=binomial(link="logit"))
+  pred.all <- as.factor(ifelse(predict(logit.all, test.set[,c(1,2,3,10)], type = "response") < 0.5, 'Benign', 'Malignant'))
+  conf.matrix <- table(test.set$Class, pred.all)
+  misclass.error[i] <- (nrow(test.set) - sum(diag(conf.matrix))) / nrow(test.set)
+  sensitivity[i] <- conf.matrix[2,2] / sum(conf.matrix[2,])
+  specificity[i] <- conf.matrix[1,1] / sum(conf.matrix[1,])
+  precision[i] <- conf.matrix[2,2] / sum(conf.matrix[,2])
+}
+
+names <- c('Misclassification error', 'Sensitivity', 'Specificity', 'Precision')
+Mean <- c(mean(misclass.error), mean(sensitivity), mean(specificity), mean(precision))
+Variance <- c(var(misclass.error), var(sensitivity), var(specificity), var(precision))
+accuracy.measures <- data.frame(Mean, Variance, row.names = names)
+
+print(xtable(accuracy.measures, caption = 'Accuracy measures for simplified model (3 principal components).', digits=c(0,4,5)), table.placement = 'H')
+@
+
+We can notice that logistic regression is more accurate than $k$-nn when we examine only 3 principal components. However, unfortunately again PCA did not boost our classification model in comparison to the first part of project results. 
+
+
+
+
+\subsection{Clustering in PC space}
+
+In this section we will perform unsupervised learning using chosen methods for the new features obtained with principal component analysis. Using elbow method we can again obtain 2 clusters as an optimum.
+
+<<echo=F, eval=T, warning=F>>=
+within <- numeric(12)
+for(i in 1:12){
+  km <- kmeans(pca_data$x, centers=i, iter.max=10, nstart=10)
+  within[i] <- km$tot.withinss
+}
+@
+<<echo=F, eval=T, warning=F, fig.height=3.5, fig.cap='Total sum of squares within clusters (obtained using k-means algorithm).'>>=
+plot(1:12, within, lwd=2, type="b", col = "#229959", main="Total withinness",
+     xlab="number of clusters", ylab="values")
+@
+
+Since we met the best results for \textbf{$k$-medians} clustering, we will repeat this approach now. We considered only 2 main principal components.
+
+<<echo=F, eval=T, fig.height=4.5, fig.cap='Cluster membership visualization.'>>=
+k <- 2
+pca_kmedians <- kGmedian(pca_data$x[,c(1,2)], ncenters=k)
+df_kmedians_labels <- pca_kmedians$cluster
+
+tab_median2 <- table(df_kmedians_labels, df_real_labels)
+#matchClasses(tab_median2)
+
+color <- c("#08b2e3", "#98ce00")
+colors <- color[as.numeric(df_kmedians_labels)]
+plot(pca_data$x[,c(1,2)], col=colors, main='k-medians clustering for principal components',pch=as.numeric(df_real_labels))
+legend("topright", 
+      legend = c("Cluster 1", "Cluster 2", "Real Benign", "Real Malignant"),
+      col =  c(color, 1, 1), 
+      pch = c(15, 15, 1, 2), cex=0.8, bg='white')
+@
+<<echo=F, eval=T, results='asis'>>=
+print(xtable(tab_median2), table.placement="H")
+@
+
+Comparing to the previous results of $k$-medians clustering, here we have 97.07\% cases in matched pairs, which is a little bit better (and we used only two features instead of nine!). Below we checked also the performance of \textbf{PAM} algorithm.
+
+<<echo=F, eval=T, fig.height=4.5, fig.cap='Cluster membership visualization.'>>=
+pca_pam <- pam(x=pca_data$x[,c(1,2)], diss=FALSE, k=2)
+tab_pca_pam <- table(pca_pam$clustering, df_real_labels)
+#matchClasses(tab_pca_pam)
+
+color <- c("#08b2e3", "#98ce00")
+colors <- color[as.numeric(pca_pam$clustering)]
+plot(pca_data$x[,c(1,2)], col=colors, main='PAM clustering for principal components',pch=as.numeric(df_real_labels))
+legend("topright", 
+      legend = c("Cluster 1", "Cluster 2", "Real Benign", "Real Malignant"),
+      col =  c(color, 1, 1), 
+      pch = c(15, 15, 1, 2), cex=0.8, bg='white')
+@
+<<echo=F, eval=T, results='asis'>>=
+print(xtable(tab_pca_pam), table.placement="H")
+@
+
+PAM algorithm assigned only one observation differently (unfortunately incorrectly regarding the true classes). As we remember, in original variable space PAM mismatched true labels with clusters in 28 cases. Now we have only 21 mismatched cases. 
+
+
+
+\newpage
+\section{Conclusions and remarks}
+We have come a long way to find ourselves in this place and gain significant knowledge in the field of data mining techniques, in particular classification, clustering and proper data analysis. We have penetrated multiple feature selection methods; got through well-known and less popular classification approaches; confronted various clustering algorithms thereby facing the vastness of data mining field.\\
+\\
+In this part of the project we have focused mostly on clustering and dimensionality reduction. We started off with partitioning methods like $k$-means, mini-batch-$k$-means, $k$-medians and $k$-medoids. Then the hierarchical clustering was our target: divisive method and agglomerative method with silhouette plot and dendrogram. We have gained the knowledge regarding density based clustering (DBSCAN). \\
+\\
+The results perpetuated us in the belief that \textbf{two} clusters is what we need and should consider. Dealing with numerical data gave us good results and satysfying internal quality of clusters. With reference to external indices validation $k$-medians algorithm seems to be the most efficient, although we suspected PAM to give better results. Considering all the criteria together, some methods match better with true classes, some exhibit better internal quality. \\
+\\ 
+Within the hierarchical methods we realized that average linkage gives the best results. After focusing on DIANA we realized that hierarchical methods do not cope with our data as well as partitioning methods. \\
+\\
+We performed dimentionality reduction using Principal Component Analysis. Although it transforms our variables into less understandable and not intuitive components, it allows us to visualize multidimensional data in 2D space. Using classification algorithms on the transformed breast cancer data turned out not to be more accurate than on original data. However, it played a bigger role in clustering. Two main principal components were enough to create more consistent with true labels clusters.\\
+\\
+We tried hard to detect a separation pattern in order to categorize the cancer using multiple approaches and eventually we managed to do it. Data mining techniques will no longer be a secret.
+
+
+
+
+
+
+
+\newpage
+\section{Bibliography}
+\begin{thebibliography}{10}
+	\bibitem{cancer_data} \label{dataset}
+ 	Medical diagnostics: Breast Cancer Wisconsin (Original) Data Set\\
+ 	\path{http://archive.ics.uci.edu/ml/datasets/Breast+Cancer+Wisconsin+(Original)}. \\
+ 	UCI, Machine Learning Repository, 1992.
+ 	\bibitem{proj1} M. Kawalko, Z. Materny, \textit{Application of data mining techniques on Breast Cancer Wisconsin data set part I} (2019) \label{proj1}
+  \bibitem{clas} A. Zagdanski, Lecture materials for Data Mining course (2019)
+  \bibitem{datacamp} S. Jaiswal, DataCamp, K-Means Clustering in R Tutorial (2018)
+  \bibitem{datacamp2} M. Pathak, DataCamp, Hierarchical Clustering in R (2018)
+  \bibitem{kdd} \label{kdd} \path{https://www.kdd.org/News/view/2014-sigkdd-test-of-time-award}
+ 	\bibitem{reilly} A. Geron, \textit{Uczenie maszynowe z uzyciem Scikit-Learn i TensorFlow} (2017)
+ 	\bibitem{clusR} DataFlair Team, \textit{Clustering in R - A Survival Guide on Cluster Analysis in R for Beginners!} (2019)
+ 	\bibitem{luiz} L. Fonseca, \textit{Clustering Analysis in R using K-means} (2019)
+ 	\bibitem{gabriel} G. Martos, \textit{Cluster Analysis with R} 
+\end{thebibliography}
+
+
+\end{document}
